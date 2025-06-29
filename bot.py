@@ -5,9 +5,9 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- Config ---
-API_ID = YOUR_API_ID
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+API_ID = 17875613
+API_HASH = "6798f54a7f74e94f2ef0923fba8a8377"
+BOT_TOKEN = "7780022269:AAE6xCO3B7_Y6VfbW60zzyr6YzZuP33wz0U"
 FIREBASE_JSON = "firebase-cred.json"
 
 # --- Init ---
