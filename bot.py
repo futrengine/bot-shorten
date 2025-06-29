@@ -9,18 +9,17 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 
-# Load Firebase credentials from ENV
+# Firebase setup from ENV var
 firebase_json = json.loads(os.getenv("FIREBASE_JSON"))
 cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Short URL base
-SHORT_BASE = "https://futrengine.github.io/file/short/"
+SHORT_BASE = "https://futrengine.github.io/s/"  # your short link prefix
 
-# Init Pyrogram
 app = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
 
+# DB limit functions
 def get_limit(user_id):
     doc = db.collection("users").document(str(user_id)).get()
     if doc.exists:
@@ -41,8 +40,10 @@ async def start(client, message):
         "🔗 First 5 shortens are free.\n"
         "👉 To get 2 more, tap below and view ad.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔓 Unlock More", url="https://your-monetag-ad-url.com")],
-            [InlineKeyboardButton("🌐 Website", url="https://futrengine.github.io/")]
+            [
+                InlineKeyboardButton("🔓 Unlock More", url="https://your-monetag-ad-url.com"),
+                InlineKeyboardButton("🌐 Website", url="https://futrengine.github.io/")
+            ]
         ])
     )
 
@@ -50,13 +51,14 @@ async def start(client, message):
 async def stats(client, message):
     limit = get_limit(message.from_user.id)
     if limit > 0:
-        await message.reply(f"🧮 You can shorten {limit} more links.")
+        await message.reply(f"🧮 You can shorten **{limit}** more links.")
     else:
-        await message.reply("❌ Limit reached. Tap below to get more!",
+        await message.reply(
+            "❌ Limit reached. Tap below to get more!",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔓 Unlock", url="https://your-monetag-ad-url.com")]
             ])
-        ))
+        )
 
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "stats"]))
 async def shorten(client, message):
@@ -65,7 +67,8 @@ async def shorten(client, message):
     limit = get_limit(user_id)
 
     if limit <= 0:
-        await message.reply("🚫 You have no remaining links. Tap below to unlock more.",
+        await message.reply(
+            "🚫 You have no remaining links. Tap below to unlock more.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔓 Watch Ad", url="https://your-monetag-ad-url.com")]
             ])
