@@ -1,143 +1,94 @@
-import os
+import os, json, random, string
 import firebase_admin
 from firebase_admin import credentials, firestore
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- Config ---
-API_ID = 17875613
-API_HASH = "6798f54a7f74e94f2ef0923fba8a8377"
-BOT_TOKEN = "7780022269:AAE6xCO3B7_Y6VfbW60zzyr6YzZuP33wz0U"
-FIREBASE_JSON = "firebase-cred.json"
+# Env vars
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
 
-# --- Init ---
-app = Client("shortener_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-cred = credentials.Certificate(FIREBASE_JSON)
+# Load Firebase credentials from ENV
+firebase_json = json.loads(os.getenv("FIREBASE_JSON"))
+cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-SHORTENER_URL = "https://futrengine.github.io/s/"  # Change if needed
+# Short URL base
+SHORT_BASE = "https://futrengine.github.io/file/short/"
 
-# --- Utils ---
-def get_user_limit(user_id):
-    user_ref = db.collection("users").document(str(user_id))
-    doc = user_ref.get()
+# Init Pyrogram
+app = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+
+def get_limit(user_id):
+    doc = db.collection("users").document(str(user_id)).get()
     if doc.exists:
-        return doc.to_dict().get("limit", 0)
+        return doc.to_dict().get("limit", 5)
     else:
-        user_ref.set({"limit": 5})
+        db.collection("users").document(str(user_id)).set({"limit": 5})
         return 5
 
-def update_user_limit(user_id, add=0, reset=False):
-    user_ref = db.collection("users").document(str(user_id))
-    if reset:
-        user_ref.set({"limit": 5})
-    else:
-        current = get_user_limit(user_id)
-        user_ref.update({"limit": current + add})
+def update_limit(user_id, delta):
+    ref = db.collection("users").document(str(user_id))
+    current = get_limit(user_id)
+    ref.update({"limit": current + delta})
 
-# --- Commands ---
 @app.on_message(filters.command("start"))
-async def start(_, msg):
-    await msg.reply(
-        "**👋 Welcome to FutrEngine Shortener Bot**\n\n"
-        "🔗 Shorten and customize big URLs.\n"
-        "🎁 5 links free. Tap below to unlock more:\n\n"
-        "_Use /stats to check remaining links._",
+async def start(client, message):
+    await message.reply(
+        "**👋 Welcome to FutrEngine URL Shortener**\n\n"
+        "🔗 First 5 shortens are free.\n"
+        "👉 To get 2 more, tap below and view ad.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔓 Unlock Links", url="https://your-monetag-miniapp.com")],
-            [InlineKeyboardButton("🌐 Visit Site", url="https://futrengine.github.io/")]
+            [InlineKeyboardButton("🔓 Unlock More", url="https://your-monetag-ad-url.com")],
+            [InlineKeyboardButton("🌐 Website", url="https://futrengine.github.io/")]
         ])
     )
 
 @app.on_message(filters.command("stats"))
-async def stats(_, msg):
-    limit = get_user_limit(msg.from_user.id)
-    if limit <= 0:
-        await msg.reply("❌ You've used all 5 free links. Tap below to unlock 2 more:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔓 Watch Ad", url="https://your-monetag-miniapp.com")]
-            ])
-        )
+async def stats(client, message):
+    limit = get_limit(message.from_user.id)
+    if limit > 0:
+        await message.reply(f"🧮 You can shorten {limit} more links.")
     else:
-        await msg.reply(f"🔢 You have **{limit}** links left to shorten.")
+        await message.reply("❌ Limit reached. Tap below to get more!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔓 Unlock", url="https://your-monetag-ad-url.com")]
+            ])
+        ))
 
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "stats"]))
-async def handle_url(_, msg):
-    user_id = msg.from_user.id
-    limit = get_user_limit(user_id)
+async def shorten(client, message):
+    user_id = message.from_user.id
+    url = message.text.strip()
+    limit = get_limit(user_id)
 
     if limit <= 0:
-        await msg.reply("❌ No links left. Tap below to unlock:",
+        await message.reply("🚫 You have no remaining links. Tap below to unlock more.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔓 Unlock Now", url="https://your-monetag-miniapp.com")]
+                [InlineKeyboardButton("🔓 Watch Ad", url="https://your-monetag-ad-url.com")]
             ])
         )
         return
 
-    long_url = msg.text.strip()
-    await msg.reply("✏️ Do you want a custom alias?",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ No Alias", callback_data=f"alias:|{long_url}")]
-        ])
-    )
+    alias = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    short_url = SHORT_BASE + alias
 
-@app.on_callback_query(filters.regex("^alias:"))
-async def alias_step(_, callback):
-    alias, long_url = callback.data.replace("alias:", "").split("|", 1)
-    if not alias:
-        await callback.message.reply("🔒 Do you want to set a password?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ No Password", callback_data=f"final:{long_url}|None|None")]
-            ])
-        )
-    else:
-        await callback.message.reply("✏️ Please type your alias:")
-
-@app.on_message(filters.text & filters.private)
-async def alias_or_password_input(_, msg):
-    text = msg.text.strip()
-    if "alias" in msg.reply_to_message.text.lower():
-        alias = text
-        await msg.reply("🔐 Send password or tap skip.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ No Password", callback_data=f"final:{msg.reply_to_message.text}|{alias}|None")]
-            ])
-        )
-    elif "password" in msg.reply_to_message.text.lower():
-        password = text
-        long_url = msg.reply_to_message.text.split("|")[1]  # extract properly
-        alias = msg.reply_to_message.text.split("|")[2]
-        await create_short_and_reply(msg.chat.id, long_url, alias, password)
-
-@app.on_callback_query(filters.regex("^final:"))
-async def final_step(_, callback):
-    long_url, alias, password = callback.data.replace("final:", "").split("|")
-    await create_short_and_reply(callback.from_user.id, long_url, alias, password)
-
-# --- Shortener Logic ---
-async def create_short_and_reply(chat_id, long_url, alias, password):
-    user_id = chat_id
-    update_user_limit(user_id, add=-1)
-    
-    # Normally you'd create the link via Firebase Function or encode it yourself
-    import random, string
-    suffix = alias or ''.join(random.choices(string.ascii_letters + string.digits, k=6))
-    short_url = SHORTENER_URL + suffix
-
-    # Optionally store link in Firebase
-    db.collection("short_links").document(suffix).set({
-        "original": long_url,
+    # Save link to Firebase
+    db.collection("short_links").document(alias).set({
         "user": user_id,
-        "password": password or "",
+        "long_url": url,
         "created": firestore.SERVER_TIMESTAMP
     })
 
-    await app.send_message(chat_id,
-        f"✅ Your Short Link:\n`{short_url}`",
+    update_limit(user_id, -1)
+
+    await message.reply(
+        f"✅ Your short link:\n`{short_url}`",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌐 Open", url=short_url)]
+            [InlineKeyboardButton("🌐 Open Link", url=short_url)]
         ])
     )
 
